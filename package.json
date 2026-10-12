@@ -1,0 +1,12 @@
+{
+  "name": "ace-pro-admin-server",
+  "version": "1.0.0",
+  "description": "Ace Pro License Server & Admin Panel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

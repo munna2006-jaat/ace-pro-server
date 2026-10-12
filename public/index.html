@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ace Pro &bull; Admin License Manager</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Admin Login View -->
+  <div id="loginView" class="login-wrapper">
+    <div class="login-box">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#00d2ff" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="rgba(0,210,255,0.2)"/>
+          <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h1>Ace Pro Admin</h1>
+      <p class="subtitle">License Management & Client Control Panel</p>
+
+      <form id="formLogin">
+        <div class="input-group">
+          <label>Admin Password</label>
+          <input type="password" id="inputAdminPassword" placeholder="Enter Admin Password" required autocomplete="current-password">
+        </div>
+        <div id="loginErrorMsg" class="error-text"></div>
+        <button type="submit" class="btn btn-primary btn-block">Login to Admin Portal</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Admin Main Dashboard -->
+  <div id="dashboardView" class="dashboard-wrapper" style="display: none;">
+    <!-- Top Navigation -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#00d2ff" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="rgba(0,210,255,0.2)"/>
+          <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="nav-title">Ace Pro <b>Admin Manager</b></span>
+      </div>
+      <div class="nav-actions">
+        <span class="admin-badge">Admin Authenticated</span>
+        <button id="btnLogout" class="btn btn-secondary btn-sm">Logout</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- Metric Cards -->
+      <section class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">TOTAL CLIENTS</div>
+          <div class="metric-val" id="valTotalClients">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">ACTIVE LICENSES</div>
+          <div class="metric-val text-success" id="valActiveClients">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">EXPIRING IN &le; 3 DAYS</div>
+          <div class="metric-val text-warning" id="valExpiringClients">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">EXPIRED LICENSES</div>
+          <div class="metric-val text-danger" id="valExpiredClients">0</div>
+        </div>
+      </section>
+
+      <!-- Action & Filter Bar -->
+      <section class="action-bar">
+        <div class="search-filter-box">
+          <input type="text" id="searchInput" placeholder="Search client username, notes..." class="search-input">
+          <select id="filterStatus" class="select-filter">
+            <option value="all">All Clients</option>
+            <option value="active">Active Only</option>
+            <option value="expired">Expired Only</option>
+          </select>
+        </div>
+        <button id="btnOpenCreateModal" class="btn btn-primary">
+          <span style="font-size: 16px; margin-right: 4px;">+</span> Create New Client (License)
+        </button>
+      </section>
+
+      <!-- Clients Table -->
+      <section class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Client Username</th>
+              <th>Password</th>
+              <th>Expiry Date</th>
+              <th>Validity Remaining</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th style="text-align: right;">Quick Actions</th>
+            </tr>
+          </thead>
+          <tbody id="clientsTableBody">
+            <!-- Dynamically populated rows -->
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <!-- Create Client Modal -->
+  <div id="createClientModal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Create Client License</h2>
+        <button class="modal-close" id="btnCloseCreateModal">&times;</button>
+      </div>
+      <form id="formCreateClient">
+        <div class="form-group">
+          <label>Username / Client ID</label>
+          <input type="text" id="newUsername" placeholder="e.g. trader_vip_1" required>
+        </div>
+
+        <div class="form-group">
+          <label>Password</label>
+          <div class="input-with-button">
+            <input type="text" id="newPassword" placeholder="e.g. pass9876" required>
+            <button type="button" id="btnGenPassword" class="btn btn-secondary btn-sm">Random</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>License Validity Duration</label>
+          <select id="newValidityDays" class="select-control">
+            <option value="1">1 Day (Trial)</option>
+            <option value="7">7 Days (1 Week)</option>
+            <option value="30" selected>30 Days (1 Month License)</option>
+            <option value="60">60 Days (2 Months)</option>
+            <option value="90">90 Days (3 Months)</option>
+            <option value="180">180 Days (6 Months)</option>
+            <option value="365">365 Days (1 Year)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Client Notes / Payment Remarks</label>
+          <input type="text" id="newNotes" placeholder="e.g. Paid ₹5,000 for 1 month access">
+        </div>
+
+        <div id="createErrorMsg" class="error-text"></div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btnCancelCreate">Cancel</button>
+          <button type="submit" class="btn btn-primary">Generate &amp; Save License</button>
+        </div>
+      </form>
+
+      <!-- Created Success Box for WhatsApp Sharing -->
+      <div id="shareBox" class="share-box" style="display: none;">
+        <h3>License Created Successfully!</h3>
+        <p class="share-desc">Copy and send this WhatsApp message to your client:</p>
+        <textarea id="shareText" readonly rows="5"></textarea>
+        <button id="btnCopyShare" class="btn btn-primary btn-block">Copy WhatsApp Message</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="adminToast" class="admin-toast">Copied to clipboard!</div>
+
+  <script src="app.js"></script>
+</body>
+</html>
