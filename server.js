@@ -160,6 +160,11 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // Health check & Keepalive for UptimeRobot / pingers (GET or HEAD)
+    if ((pathname === '/api/license/verify' || pathname === '/health' || pathname === '/api/health') && (method === 'GET' || method === 'HEAD')) {
+      return sendJson(res, 200, { status: "ok", alive: true, timestamp: Date.now() });
+    }
+
     // 2. Client License Verify (Heartbeat verification)
     if (pathname === '/api/license/verify' && method === 'POST') {
       const { username, licenseKey } = await parseJsonBody(req);
