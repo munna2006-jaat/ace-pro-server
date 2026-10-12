@@ -12,8 +12,9 @@ const loginErrorMsg = document.getElementById('loginErrorMsg');
 const btnLogout = document.getElementById('btnLogout');
 
 const valTotalClients = document.getElementById('valTotalClients');
+const valOnlineClients = document.getElementById('valOnlineClients');
 const valActiveClients = document.getElementById('valActiveClients');
-const valExpiringClients = document.getElementById('valExpiringClients');
+const valOrdersToday = document.getElementById('valOrdersToday');
 const valExpiredClients = document.getElementById('valExpiredClients');
 
 const searchInput = document.getElementById('searchInput');
@@ -56,10 +57,19 @@ function showLogin() {
   dashboardView.style.display = 'none';
 }
 
+let pollTimer = null;
+
 function showDashboard() {
   loginView.style.display = 'none';
   dashboardView.style.display = 'block';
   loadClients();
+  if (!pollTimer) {
+    pollTimer = setInterval(() => {
+      if (adminToken && dashboardView.style.display !== 'none') {
+        loadClients();
+      }
+    }, 6000);
+  }
 }
 
 // 2. Admin Login Form
@@ -113,28 +123,43 @@ async function loadClients() {
   }
 }
 
+// Helper to format time ago
+function formatTimeAgo(dateStr) {
+  if (!dateStr) return 'Never connected';
+  const diffSec = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (diffSec < 15) return 'Just now';
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const min = Math.floor(diffSec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return Math.floor(hr / 24) + 'd ago';
+}
+
 // 4. Update Metrics Cards
 function updateMetrics() {
   const total = allClients.length;
+  let online = 0;
   let active = 0;
-  let expiring = 0;
+  let ordersToday = 0;
   let expired = 0;
 
   for (const c of allClients) {
+    if (c.isOnline) online++;
+    if (c.today_orders) ordersToday += Number(c.today_orders);
+
     if (c.isExpired || c.is_active === 0) {
       expired++;
     } else {
       active++;
-      if (c.daysLeft <= 3 && c.daysLeft >= 0) {
-        expiring++;
-      }
     }
   }
 
-  valTotalClients.textContent = total;
-  valActiveClients.textContent = active;
-  valExpiringClients.textContent = expiring;
-  valExpiredClients.textContent = expired;
+  if (valTotalClients) valTotalClients.textContent = total;
+  if (valOnlineClients) valOnlineClients.textContent = online;
+  if (valActiveClients) valActiveClients.textContent = active;
+  if (valOrdersToday) valOrdersToday.textContent = ordersToday;
+  if (valExpiredClients) valExpiredClients.textContent = expired;
 }
 
 // 5. Render Clients Table
@@ -143,9 +168,12 @@ function renderTable() {
   const filter = filterStatus.value;
 
   const filtered = allClients.filter(c => {
-    const matchSearch = c.username.toLowerCase().includes(search) || (c.notes && c.notes.toLowerCase().includes(search));
+    const matchSearch = c.username.toLowerCase().includes(search) ||
+      (c.bound_p2p_account && c.bound_p2p_account.toLowerCase().includes(search)) ||
+      (c.notes && c.notes.toLowerCase().includes(search));
     if (!matchSearch) return false;
 
+    if (filter === 'online') return !!c.isOnline;
     if (filter === 'active') return !c.isExpired && c.is_active === 1;
     if (filter === 'expired') return c.isExpired || c.is_active === 0;
     return true;
@@ -154,7 +182,7 @@ function renderTable() {
   if (filtered.length === 0) {
     clientsTableBody.innerHTML = `
       <tr>
-        <td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">
+        <td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">
           No clients found. Click "+ Create New Client" to generate one.
         </td>
       </tr>
@@ -165,15 +193,53 @@ function renderTable() {
   clientsTableBody.innerHTML = filtered.map(c => {
     const expDate = new Date(c.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     let badgeClass = 'active';
-    let badgeText = `${c.daysLeft} days left`;
+    let badgeText = `${c.daysLeft}d left`;
 
     if (c.isExpired) {
       badgeClass = 'expired';
       badgeText = 'Expired';
     } else if (c.daysLeft <= 3) {
       badgeClass = 'warning';
-      badgeText = `${c.daysLeft} days left (Expiring)`;
+      badgeText = `${c.daysLeft}d (Expiring)`;
     }
+
+    // Live Activity Badge
+    let liveBadgeHtml = '';
+    if (c.isOnline) {
+      const isRunning = c.bot_status === 'RUNNING';
+      liveBadgeHtml = `
+        <div class="live-status-cell">
+          <div class="live-pill ${isRunning ? 'running' : 'idle'}">
+            <span class="live-dot ${isRunning ? 'running' : 'idle'}"></span>
+            <span>${isRunning ? 'Running' : 'Idle / Ready'}</span>
+          </div>
+          <div class="activity-desc" title="${escapeHtml(c.current_activity || '')}">
+            ${escapeHtml(c.current_activity || (isRunning ? 'Monitoring' : 'Idle'))}
+            ${c.desk_status === 'CONNECTED' ? '<span title="P2P Desk Tab Active" style="color:#00e676; font-size:11px; margin-left:3px;">🌐 Tab</span>' : '<span title="Desk tab offline" style="color:#8b949e; font-size:11px; margin-left:3px;">⚠️ No Tab</span>'}
+          </div>
+        </div>
+      `;
+    } else {
+      liveBadgeHtml = `
+        <div class="live-status-cell">
+          <div class="live-pill offline">
+            <span class="live-dot offline"></span>
+            <span>Offline</span>
+          </div>
+          <div class="activity-desc text-muted">${formatTimeAgo(c.last_seen_at)}</div>
+        </div>
+      `;
+    }
+
+    // Balance & Orders
+    const balanceHtml = `
+      <div class="balance-cell">
+        <div class="balance-amt">${c.balance_usdt ? `<b>${escapeHtml(c.balance_usdt)}</b> <span style="font-size:10px; color:#00d2ff;">USDT</span>` : '<span style="color:#6e7681; font-size:12px;">Waiting ping...</span>'}</div>
+        <div class="orders-count">
+          <span style="color:#ff9100; font-weight:700;">${c.today_orders || 0}</span> Grabs <span style="color:#8b949e; font-size:11px;">(₹${Number(c.today_fiat || 0).toLocaleString('en-IN')})</span>
+        </div>
+      </div>
+    `;
 
     return `
       <tr>
@@ -182,6 +248,7 @@ function renderTable() {
             <span>${escapeHtml(c.username)}</span>
             ${c.bound_device ? '<span title="Device Bound (1 Device Active)" style="color:#00d2ff; font-size:10px;">🔒</span>' : ''}
           </div>
+          ${c.notes ? `<div style="color:var(--text-muted); font-size:11px; margin-top:2px;">${escapeHtml(c.notes)}</div>` : ''}
         </td>
         <td>
           <span class="password-badge" title="Click to copy" onclick="copyText('${escapeHtml(c.password)}')">
@@ -199,22 +266,27 @@ function renderTable() {
             </span>
           `}
         </td>
-        <td style="color: #c9d1d9;">${expDate}</td>
         <td>
-          <span class="days-badge ${badgeClass}">${badgeText}</span>
+          ${liveBadgeHtml}
+        </td>
+        <td>
+          ${balanceHtml}
+        </td>
+        <td>
+          <div style="color: #c9d1d9; font-size:12px;">${expDate}</div>
+          <span class="days-badge ${badgeClass}" style="margin-top:2px;">${badgeText}</span>
         </td>
         <td>
           <button class="btn btn-sm ${c.is_active === 1 ? 'btn-secondary' : 'btn-danger'}" onclick="toggleStatus(${c.id}, ${c.is_active})">
             ${c.is_active === 1 ? '● Active' : '✕ Blocked'}
           </button>
         </td>
-        <td style="color: var(--text-muted); font-size: 12px;">${escapeHtml(c.notes || '-')}</td>
         <td>
           <div class="actions-cell">
-            <button class="btn btn-secondary btn-sm" onclick="extendLicense(${c.id})" title="Extend validity by 30 days">+30 Days</button>
+            <button class="btn btn-secondary btn-sm" onclick="extendLicense(${c.id})" title="Extend validity by 30 days">+30d</button>
             <button class="btn btn-secondary btn-sm" onclick="copyClientDetails('${escapeHtml(c.username)}', '${escapeHtml(c.password)}', '${expDate}', '${escapeHtml(c.bound_p2p_account || '')}')" title="Copy WhatsApp template">WhatsApp</button>
             ${c.bound_p2p_account ? `<button class="btn btn-secondary btn-sm" onclick="resetP2p(${c.id})" title="Reset P2P Account Lock">Reset P2P</button>` : ''}
-            ${c.bound_device ? `<button class="btn btn-secondary btn-sm" onclick="resetDevice(${c.id})" title="Reset Device Lock">Reset Device</button>` : ''}
+            ${c.bound_device ? `<button class="btn btn-secondary btn-sm" onclick="resetDevice(${c.id})" title="Reset Device Lock">Reset Dev</button>` : ''}
             <button class="btn btn-danger btn-sm" onclick="deleteClient(${c.id})">Del</button>
           </div>
         </td>

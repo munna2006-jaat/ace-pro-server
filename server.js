@@ -36,11 +36,23 @@ db.exec(`
   );
 `);
 
-// Migration: Add bound_p2p_account if missing from existing database
-try {
-  db.exec("ALTER TABLE licenses ADD COLUMN bound_p2p_account TEXT;");
-} catch (e) {
-  // Column already exists
+// Migration: Add bound_p2p_account and telemetry columns if missing
+const migrationCols = [
+  "ALTER TABLE licenses ADD COLUMN bound_p2p_account TEXT;",
+  "ALTER TABLE licenses ADD COLUMN balance_usdt TEXT;",
+  "ALTER TABLE licenses ADD COLUMN today_orders INTEGER DEFAULT 0;",
+  "ALTER TABLE licenses ADD COLUMN today_fiat REAL DEFAULT 0;",
+  "ALTER TABLE licenses ADD COLUMN bot_status TEXT;",
+  "ALTER TABLE licenses ADD COLUMN desk_status TEXT;",
+  "ALTER TABLE licenses ADD COLUMN current_activity TEXT;",
+  "ALTER TABLE licenses ADD COLUMN last_seen_at TEXT;"
+];
+for (const sql of migrationCols) {
+  try {
+    db.exec(sql);
+  } catch (e) {
+    // Column already exists
+  }
 }
 
 // Setup default admin credentials if not present
@@ -195,9 +207,9 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { status: "ok", alive: true, timestamp: Date.now() });
     }
 
-    // 2. Client License Verify (Heartbeat verification)
+    // 2. Client License Verify (Heartbeat verification & Telemetry)
     if (pathname === '/api/license/verify' && method === 'POST') {
-      const { username, licenseKey, p2pAccountId } = await parseJsonBody(req);
+      const { username, licenseKey, p2pAccountId, telemetry } = await parseJsonBody(req);
       let stmt, row;
       if (username) {
         stmt = db.prepare("SELECT * FROM licenses WHERE username = ?");
@@ -242,6 +254,29 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // Save Live Telemetry from Extension (Balance, Orders, Running status, Desk tab status)
+      if (telemetry && typeof telemetry === 'object') {
+        const bal = telemetry.balanceUsdt ? String(telemetry.balanceUsdt) : null;
+        const orders = Number(telemetry.acceptedCount) || 0;
+        const fiat = Number(telemetry.sessionTotalFiat) || 0;
+        const botStatus = telemetry.isRunning ? 'RUNNING' : 'IDLE';
+        const deskStatus = telemetry.deskTabConnected ? 'CONNECTED' : 'OFFLINE';
+        const currentAction = telemetry.currentAction ? String(telemetry.currentAction).slice(0, 120) : (telemetry.isRunning ? 'Monitoring Payouts' : 'Idle');
+        const nowIso = new Date().toISOString();
+
+        db.prepare(`
+          UPDATE licenses SET
+            balance_usdt = COALESCE(?, balance_usdt),
+            today_orders = ?,
+            today_fiat = ?,
+            bot_status = ?,
+            desk_status = ?,
+            current_activity = ?,
+            last_seen_at = ?
+          WHERE id = ?
+        `).run(bal, orders, fiat, botStatus, deskStatus, currentAction, nowIso, row.id);
+      }
+
       return sendJson(res, 200, {
         valid: true,
         boundP2pAccount: row.bound_p2p_account,
@@ -274,17 +309,21 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 401, { success: false, message: "Unauthorized. Admin login required." });
       }
 
-      // GET /api/admin/clients -> list all licenses
+      // GET /api/admin/clients -> list all licenses with live telemetry
       if (pathname === '/api/admin/clients' && method === 'GET') {
         const rows = db.prepare("SELECT * FROM licenses ORDER BY id DESC").all();
         const now = Date.now();
         const clients = rows.map(r => {
           const exp = new Date(r.expires_at).getTime();
           const daysLeft = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+          const lastSeenMs = r.last_seen_at ? new Date(r.last_seen_at).getTime() : 0;
+          const isOnline = lastSeenMs > 0 && (now - lastSeenMs) < 90000; // seen within 90s
           return {
             ...r,
             daysLeft,
-            isExpired: now > exp
+            isExpired: now > exp,
+            isOnline,
+            lastSeenAgoSec: lastSeenMs > 0 ? Math.floor((now - lastSeenMs) / 1000) : null
           };
         });
         return sendJson(res, 200, { clients });

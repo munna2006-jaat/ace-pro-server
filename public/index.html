@@ -58,12 +58,16 @@
           <div class="metric-val" id="valTotalClients">0</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">ACTIVE LICENSES</div>
-          <div class="metric-val text-success" id="valActiveClients">0</div>
+          <div class="metric-label">🟢 LIVE ONLINE NOW</div>
+          <div class="metric-val text-success" id="valOnlineClients">0</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">EXPIRING IN &le; 3 DAYS</div>
-          <div class="metric-val text-warning" id="valExpiringClients">0</div>
+          <div class="metric-label">ACTIVE LICENSES</div>
+          <div class="metric-val text-cyan" id="valActiveClients">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">TODAY ORDERS ACCEPTED</div>
+          <div class="metric-val text-warning" id="valOrdersToday">0</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">EXPIRED LICENSES</div>
@@ -74,9 +78,10 @@
       <!-- Action & Filter Bar -->
       <section class="action-bar">
         <div class="search-filter-box">
-          <input type="text" id="searchInput" placeholder="Search client username, notes..." class="search-input">
+          <input type="text" id="searchInput" placeholder="Search client username, P2P email, notes..." class="search-input">
           <select id="filterStatus" class="select-filter">
             <option value="all">All Clients</option>
+            <option value="online">🟢 Live Online</option>
             <option value="active">Active Only</option>
             <option value="expired">Expired Only</option>
           </select>
@@ -91,13 +96,13 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>Client Username</th>
+              <th>Client ID</th>
               <th>Password</th>
               <th>Locked P2P Account</th>
+              <th>Live Status & Activity</th>
+              <th>P2P Balance & Orders</th>
               <th>Expiry Date</th>
-              <th>Validity Remaining</th>
-              <th>Status</th>
-              <th>Notes</th>
+              <th>License</th>
               <th style="text-align: right;">Quick Actions</th>
             </tr>
           </thead>
