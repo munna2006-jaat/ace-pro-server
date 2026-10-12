@@ -29,11 +29,19 @@ db.exec(`
     is_active INTEGER DEFAULT 1,
     max_devices INTEGER DEFAULT 1,
     bound_device TEXT,
+    bound_p2p_account TEXT,
     notes TEXT,
     created_at TEXT NOT NULL,
     last_login_at TEXT
   );
 `);
+
+// Migration: Add bound_p2p_account if missing from existing database
+try {
+  db.exec("ALTER TABLE licenses ADD COLUMN bound_p2p_account TEXT;");
+} catch (e) {
+  // Column already exists
+}
 
 // Setup default admin credentials if not present
 const ADMIN_PASS = process.env.ADMIN_PASSWORD || 'AcePro@2026#SecureAdmin';
@@ -106,7 +114,7 @@ const server = http.createServer(async (req, res) => {
 
     // 1. Client License Login (Extension Login)
     if (pathname === '/api/license/login' && method === 'POST') {
-      const { username, password, licenseKey, deviceId } = await parseJsonBody(req);
+      const { username, password, licenseKey, deviceId, p2pAccountId } = await parseJsonBody(req);
       
       let stmt, row;
       if (licenseKey) {
@@ -147,6 +155,27 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // P2P Account ID Lock Check (Strict 1-Account Binding)
+      if (p2pAccountId && typeof p2pAccountId === 'string') {
+        const cleanP2p = p2pAccountId.trim().toLowerCase();
+        if (cleanP2p) {
+          if (!row.bound_p2p_account) {
+            // First run: auto-lock this license to this P2P website account
+            db.prepare("UPDATE licenses SET bound_p2p_account = ? WHERE id = ?").run(cleanP2p, row.id);
+            row.bound_p2p_account = cleanP2p;
+            console.log(`[License] Auto-bound license '${row.username}' to P2P Account: ${cleanP2p}`);
+          } else if (row.bound_p2p_account.toLowerCase() !== cleanP2p) {
+            return sendJson(res, 403, {
+              success: false,
+              code: "P2P_ACCOUNT_MISMATCH",
+              boundP2pAccount: row.bound_p2p_account,
+              attemptedP2pAccount: cleanP2p,
+              message: `License is locked to P2P Account [${row.bound_p2p_account}]. Cannot use with [${cleanP2p}]. Purchase another license for this account!`
+            });
+          }
+        }
+      }
+
       // Update last login
       db.prepare("UPDATE licenses SET last_login_at = ? WHERE id = ?").run(new Date().toISOString(), row.id);
 
@@ -154,6 +183,7 @@ const server = http.createServer(async (req, res) => {
         success: true,
         username: row.username,
         licenseKey: row.license_key,
+        boundP2pAccount: row.bound_p2p_account,
         expiresAt: row.expires_at,
         daysLeft: Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24)),
         message: "License active"
@@ -167,7 +197,7 @@ const server = http.createServer(async (req, res) => {
 
     // 2. Client License Verify (Heartbeat verification)
     if (pathname === '/api/license/verify' && method === 'POST') {
-      const { username, licenseKey } = await parseJsonBody(req);
+      const { username, licenseKey, p2pAccountId } = await parseJsonBody(req);
       let stmt, row;
       if (username) {
         stmt = db.prepare("SELECT * FROM licenses WHERE username = ?");
@@ -184,11 +214,40 @@ const server = http.createServer(async (req, res) => {
       const expiryDate = new Date(row.expires_at).getTime();
       const isValid = Date.now() <= expiryDate;
 
+      if (!isValid) {
+        return sendJson(res, 200, {
+          valid: false,
+          message: `License expired on ${new Date(row.expires_at).toLocaleDateString()}`
+        });
+      }
+
+      // P2P Account ID Lock Check
+      if (p2pAccountId && typeof p2pAccountId === 'string') {
+        const cleanP2p = p2pAccountId.trim().toLowerCase();
+        if (cleanP2p) {
+          if (!row.bound_p2p_account) {
+            // Auto-lock to current account if license was not bound yet
+            db.prepare("UPDATE licenses SET bound_p2p_account = ? WHERE id = ?").run(cleanP2p, row.id);
+            row.bound_p2p_account = cleanP2p;
+            console.log(`[License] Auto-bound license '${row.username}' to P2P Account: ${cleanP2p}`);
+          } else if (row.bound_p2p_account.toLowerCase() !== cleanP2p) {
+            return sendJson(res, 200, {
+              valid: false,
+              code: "P2P_ACCOUNT_MISMATCH",
+              boundP2pAccount: row.bound_p2p_account,
+              attemptedP2pAccount: cleanP2p,
+              message: `License is locked to P2P Account [${row.bound_p2p_account}]. Cannot use with [${cleanP2p}]. Purchase another license for this account!`
+            });
+          }
+        }
+      }
+
       return sendJson(res, 200, {
-        valid: isValid,
+        valid: true,
+        boundP2pAccount: row.bound_p2p_account,
         expiresAt: row.expires_at,
         daysLeft: Math.ceil((expiryDate - Date.now()) / (1000 * 60 * 60 * 24)),
-        message: isValid ? "Active" : "Expired"
+        message: "Active"
       });
     }
 
@@ -233,7 +292,7 @@ const server = http.createServer(async (req, res) => {
 
       // POST /api/admin/clients -> create new client
       if (pathname === '/api/admin/clients' && method === 'POST') {
-        const { username, password, days = 30, notes = '' } = await parseJsonBody(req);
+        const { username, password, days = 30, notes = '', p2pAccount = '' } = await parseJsonBody(req);
         if (!username || !password) {
           return sendJson(res, 400, { success: false, message: "Username and password required" });
         }
@@ -243,16 +302,17 @@ const server = http.createServer(async (req, res) => {
         expDate.setDate(expDate.getDate() + parseInt(days));
         const expiresAt = expDate.toISOString();
         const createdAt = new Date().toISOString();
+        const boundP2p = p2pAccount && typeof p2pAccount === 'string' && p2pAccount.trim() ? p2pAccount.trim().toLowerCase() : null;
 
         try {
           db.prepare(`
-            INSERT INTO licenses (username, password, license_key, expires_at, is_active, notes, created_at)
-            VALUES (?, ?, ?, ?, 1, ?, ?)
-          `).run(username.trim(), password.trim(), licenseKey, expiresAt, notes.trim(), createdAt);
+            INSERT INTO licenses (username, password, license_key, expires_at, is_active, bound_p2p_account, notes, created_at)
+            VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+          `).run(username.trim(), password.trim(), licenseKey, expiresAt, boundP2p, notes.trim(), createdAt);
 
           return sendJson(res, 201, {
             success: true,
-            client: { username, password, licenseKey, expiresAt, days }
+            client: { username, password, licenseKey, expiresAt, days, boundP2pAccount: boundP2p }
           });
         } catch (e) {
           if (e.message && e.message.includes('UNIQUE')) {
@@ -281,6 +341,21 @@ const server = http.createServer(async (req, res) => {
         const { id, active } = await parseJsonBody(req);
         db.prepare("UPDATE licenses SET is_active = ? WHERE id = ?").run(active ? 1 : 0, id);
         return sendJson(res, 200, { success: true });
+      }
+
+      // POST /api/admin/clients/reset-p2p -> clear P2P account binding
+      if (pathname === '/api/admin/clients/reset-p2p' && method === 'POST') {
+        const { id } = await parseJsonBody(req);
+        db.prepare("UPDATE licenses SET bound_p2p_account = NULL WHERE id = ?").run(id);
+        return sendJson(res, 200, { success: true, message: "P2P Account lock cleared. Will re-bind on next use." });
+      }
+
+      // POST /api/admin/clients/set-p2p -> manually update P2P account binding
+      if (pathname === '/api/admin/clients/set-p2p' && method === 'POST') {
+        const { id, p2pAccount } = await parseJsonBody(req);
+        const cleanP2p = p2pAccount && typeof p2pAccount === 'string' && p2pAccount.trim() ? p2pAccount.trim().toLowerCase() : null;
+        db.prepare("UPDATE licenses SET bound_p2p_account = ? WHERE id = ?").run(cleanP2p, id);
+        return sendJson(res, 200, { success: true, message: "P2P Account updated" });
       }
 
       // POST /api/admin/clients/reset-device -> clear HWID binding

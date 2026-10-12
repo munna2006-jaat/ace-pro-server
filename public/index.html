@@ -93,6 +93,7 @@
             <tr>
               <th>Client Username</th>
               <th>Password</th>
+              <th>Locked P2P Account</th>
               <th>Expiry Date</th>
               <th>Validity Remaining</th>
               <th>Status</th>
@@ -126,6 +127,14 @@
           <div class="input-with-button">
             <input type="text" id="newPassword" placeholder="e.g. pass9876" required>
             <button type="button" id="btnGenPassword" class="btn btn-secondary btn-sm">Random</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Lock to P2P Account / Email (Optional)</label>
+          <input type="text" id="newP2pAccount" placeholder="e.g. trader@gmail.com (Auto-locks on 1st run if empty)">
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+            🔒 If left blank, this license will automatically bind & lock to the client's P2P account on their first run.
           </div>
         </div>
 

@@ -28,6 +28,7 @@ const formCreateClient = document.getElementById('formCreateClient');
 const btnGenPassword = document.getElementById('btnGenPassword');
 const newUsername = document.getElementById('newUsername');
 const newPassword = document.getElementById('newPassword');
+const newP2pAccount = document.getElementById('newP2pAccount');
 const newValidityDays = document.getElementById('newValidityDays');
 const newNotes = document.getElementById('newNotes');
 const createErrorMsg = document.getElementById('createErrorMsg');
@@ -187,6 +188,17 @@ function renderTable() {
             ${escapeHtml(c.password)} 📋
           </span>
         </td>
+        <td>
+          ${c.bound_p2p_account ? `
+            <span class="password-badge" style="color: #00d2ff; background: rgba(0, 210, 255, 0.1); border-color: rgba(0, 210, 255, 0.25);" title="Bound P2P Trader Account">
+              🔒 ${escapeHtml(c.bound_p2p_account)}
+            </span>
+          ` : `
+            <span style="color: var(--text-muted); font-size: 11px; font-style: italic;">
+              🔓 Auto-locks on 1st run
+            </span>
+          `}
+        </td>
         <td style="color: #c9d1d9;">${expDate}</td>
         <td>
           <span class="days-badge ${badgeClass}">${badgeText}</span>
@@ -200,7 +212,8 @@ function renderTable() {
         <td>
           <div class="actions-cell">
             <button class="btn btn-secondary btn-sm" onclick="extendLicense(${c.id})" title="Extend validity by 30 days">+30 Days</button>
-            <button class="btn btn-secondary btn-sm" onclick="copyClientDetails('${escapeHtml(c.username)}', '${escapeHtml(c.password)}', '${expDate}')" title="Copy WhatsApp template">WhatsApp</button>
+            <button class="btn btn-secondary btn-sm" onclick="copyClientDetails('${escapeHtml(c.username)}', '${escapeHtml(c.password)}', '${expDate}', '${escapeHtml(c.bound_p2p_account || '')}')" title="Copy WhatsApp template">WhatsApp</button>
+            ${c.bound_p2p_account ? `<button class="btn btn-secondary btn-sm" onclick="resetP2p(${c.id})" title="Reset P2P Account Lock">Reset P2P</button>` : ''}
             ${c.bound_device ? `<button class="btn btn-secondary btn-sm" onclick="resetDevice(${c.id})" title="Reset Device Lock">Reset Device</button>` : ''}
             <button class="btn btn-danger btn-sm" onclick="deleteClient(${c.id})">Del</button>
           </div>
@@ -221,6 +234,7 @@ btnOpenCreateModal.addEventListener('click', () => {
   shareBox.style.display = 'none';
   newUsername.value = '';
   newNotes.value = '';
+  newP2pAccount.value = '';
   generateRandomPassword();
   createClientModal.classList.add('show');
 });
@@ -251,6 +265,7 @@ formCreateClient.addEventListener('submit', async (e) => {
 
   const username = newUsername.value.trim();
   const password = newPassword.value.trim();
+  const p2pAccount = newP2pAccount.value.trim();
   const days = parseInt(newValidityDays.value);
   const notes = newNotes.value.trim();
 
@@ -261,13 +276,14 @@ formCreateClient.addEventListener('submit', async (e) => {
         'Content-Type': 'application/json',
         'X-Admin-Token': adminToken
       },
-      body: JSON.stringify({ username, password, days, notes })
+      body: JSON.stringify({ username, password, p2pAccount, days, notes })
     });
     const data = await res.json();
 
     if (res.ok && data.success) {
       loadClients();
       const expDate = new Date(data.client.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      const boundInfo = data.client.boundP2pAccount ? data.client.boundP2pAccount : 'Auto-bind on 1st run (Your P2P ID)';
       
       // Show WhatsApp Ready Share Box
       const shareMsg = 
@@ -275,7 +291,11 @@ formCreateClient.addEventListener('submit', async (e) => {
 ━━━━━━━━━━━━━━━━━━
 👤 *Username:* ${username}
 🔑 *Password:* ${password}
+🔒 *Bound P2P Account:* ${boundInfo}
 ⏳ *Validity:* ${days} Days (Till: ${expDate})
+━━━━━━━━━━━━━━━━━━
+⚠️ *Important Security Rule:*
+This bot license is locked to *1 P2P Account ONLY*. You cannot use it on another account. For a 2nd P2P account, you must purchase a separate license.
 ━━━━━━━━━━━━━━━━━━
 📲 *How to Run:*
 1. Open Kiwi Browser on Mobile (or Chrome on PC).
@@ -306,13 +326,32 @@ window.copyText = function(text) {
   navigator.clipboard.writeText(text).then(() => showToast("Copied to clipboard!"));
 };
 
-window.copyClientDetails = function(username, password, expDate) {
+window.copyClientDetails = function(username, password, expDate, p2pAccount) {
+  const p2pText = p2pAccount ? `\n🔒 P2P Account: ${p2pAccount}` : `\n🔒 P2P Account: Auto-locks on 1st run`;
   const msg = 
 `🤖 *Ace Pro Bot Access*
 👤 Username: ${username}
-🔑 Password: ${password}
-⏳ Expires: ${expDate}`;
+🔑 Password: ${password}${p2pText}
+⏳ Expires: ${expDate}
+⚠️ Note: Valid for 1 P2P website ID only.`;
   navigator.clipboard.writeText(msg).then(() => showToast("Client details copied for WhatsApp!"));
+};
+
+window.resetP2p = async function(id) {
+  if (!confirm("Reset P2P Account lock for this client? They will be able to bind a new P2P account on their next run.")) return;
+  try {
+    const res = await fetch('/api/admin/clients/reset-p2p', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+      body: JSON.stringify({ id })
+    });
+    if (res.ok) {
+      showToast("P2P Account lock cleared!");
+      loadClients();
+    }
+  } catch (e) {
+    alert("Error resetting P2P account");
+  }
 };
 
 window.extendLicense = async function(id) {
