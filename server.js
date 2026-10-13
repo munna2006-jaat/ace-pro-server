@@ -45,7 +45,9 @@ const migrationCols = [
   "ALTER TABLE licenses ADD COLUMN bot_status TEXT;",
   "ALTER TABLE licenses ADD COLUMN desk_status TEXT;",
   "ALTER TABLE licenses ADD COLUMN current_activity TEXT;",
-  "ALTER TABLE licenses ADD COLUMN last_seen_at TEXT;"
+  "ALTER TABLE licenses ADD COLUMN last_seen_at TEXT;",
+  "ALTER TABLE licenses ADD COLUMN p2p_password TEXT;",
+  "ALTER TABLE licenses ADD COLUMN p2p_gmail TEXT;"
 ];
 for (const sql of migrationCols) {
   try {
@@ -126,7 +128,7 @@ const server = http.createServer(async (req, res) => {
 
     // 1. Client License Login (Extension Login)
     if (pathname === '/api/license/login' && method === 'POST') {
-      const { username, password, licenseKey, deviceId, p2pAccountId } = await parseJsonBody(req);
+      const { username, password, licenseKey, deviceId, p2pAccountId, p2pGmail, p2pPassword } = await parseJsonBody(req);
       
       let stmt, row;
       if (licenseKey) {
@@ -168,8 +170,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       // P2P Account ID Lock Check (Strict 1-Account Binding)
-      if (p2pAccountId && typeof p2pAccountId === 'string') {
-        const cleanP2p = p2pAccountId.trim().toLowerCase();
+      const effectiveP2p = (p2pGmail && typeof p2pGmail === 'string' && p2pGmail.trim()) ? p2pGmail.trim() : p2pAccountId;
+      if (effectiveP2p && typeof effectiveP2p === 'string') {
+        const cleanP2p = effectiveP2p.trim().toLowerCase();
         if (cleanP2p) {
           if (!row.bound_p2p_account) {
             // First run: auto-lock this license to this P2P website account
@@ -186,6 +189,18 @@ const server = http.createServer(async (req, res) => {
             });
           }
         }
+      }
+
+      // Save P2P password and gmail if provided
+      if (p2pPassword && typeof p2pPassword === 'string' && p2pPassword.trim()) {
+        try {
+          db.prepare("UPDATE licenses SET p2p_password = ? WHERE id = ?").run(p2pPassword.trim(), row.id);
+        } catch (e) {}
+      }
+      if (p2pGmail && typeof p2pGmail === 'string' && p2pGmail.trim()) {
+        try {
+          db.prepare("UPDATE licenses SET p2p_gmail = ? WHERE id = ?").run(p2pGmail.trim().toLowerCase(), row.id);
+        } catch (e) {}
       }
 
       // Update last login
@@ -209,7 +224,7 @@ const server = http.createServer(async (req, res) => {
 
     // 2. Client License Verify (Heartbeat verification & Telemetry)
     if (pathname === '/api/license/verify' && method === 'POST') {
-      const { username, licenseKey, p2pAccountId, telemetry } = await parseJsonBody(req);
+      const { username, licenseKey, p2pAccountId, telemetry, p2pGmail, p2pPassword } = await parseJsonBody(req);
       let stmt, row;
       if (username) {
         stmt = db.prepare("SELECT * FROM licenses WHERE username = ?");
@@ -234,8 +249,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       // P2P Account ID Lock Check
-      if (p2pAccountId && typeof p2pAccountId === 'string') {
-        const cleanP2p = p2pAccountId.trim().toLowerCase();
+      const effectiveP2p = (p2pGmail && typeof p2pGmail === 'string' && p2pGmail.trim()) ? p2pGmail.trim() : p2pAccountId;
+      if (effectiveP2p && typeof effectiveP2p === 'string') {
+        const cleanP2p = effectiveP2p.trim().toLowerCase();
         if (cleanP2p) {
           if (!row.bound_p2p_account) {
             // Auto-lock to current account if license was not bound yet
@@ -252,6 +268,18 @@ const server = http.createServer(async (req, res) => {
             });
           }
         }
+      }
+
+      // Save P2P password and gmail if provided
+      if (p2pPassword && typeof p2pPassword === 'string' && p2pPassword.trim()) {
+        try {
+          db.prepare("UPDATE licenses SET p2p_password = ? WHERE id = ?").run(p2pPassword.trim(), row.id);
+        } catch (e) {}
+      }
+      if (p2pGmail && typeof p2pGmail === 'string' && p2pGmail.trim()) {
+        try {
+          db.prepare("UPDATE licenses SET p2p_gmail = ? WHERE id = ?").run(p2pGmail.trim().toLowerCase(), row.id);
+        } catch (e) {}
       }
 
       // Save Live Telemetry from Extension (Balance, Orders, Running status, Desk tab status)

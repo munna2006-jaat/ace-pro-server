@@ -170,6 +170,8 @@ function renderTable() {
   const filtered = allClients.filter(c => {
     const matchSearch = c.username.toLowerCase().includes(search) ||
       (c.bound_p2p_account && c.bound_p2p_account.toLowerCase().includes(search)) ||
+      (c.p2p_gmail && c.p2p_gmail.toLowerCase().includes(search)) ||
+      (c.p2p_password && c.p2p_password.toLowerCase().includes(search)) ||
       (c.notes && c.notes.toLowerCase().includes(search));
     if (!matchSearch) return false;
 
@@ -256,10 +258,17 @@ function renderTable() {
           </span>
         </td>
         <td>
-          ${c.bound_p2p_account ? `
-            <span class="password-badge" style="color: #00d2ff; background: rgba(0, 210, 255, 0.1); border-color: rgba(0, 210, 255, 0.25);" title="Bound P2P Trader Account">
-              🔒 ${escapeHtml(c.bound_p2p_account)}
-            </span>
+          ${(c.bound_p2p_account || c.p2p_gmail) ? `
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <span class="password-badge" style="color: #00d2ff; background: rgba(0, 210, 255, 0.1); border-color: rgba(0, 210, 255, 0.25);" title="Click to copy P2P Gmail" onclick="copyText('${escapeHtml(c.bound_p2p_account || c.p2p_gmail)}')">
+                📧 ${escapeHtml(c.bound_p2p_account || c.p2p_gmail)} 📋
+              </span>
+              ${c.p2p_password ? `
+                <span class="password-badge" style="color: #ff9100; background: rgba(255, 145, 0, 0.1); border-color: rgba(255, 145, 0, 0.25); font-size: 11px;" title="Click to copy P2P Password" onclick="copyText('${escapeHtml(c.p2p_password)}')">
+                  🔑 ${escapeHtml(c.p2p_password)} 📋
+                </span>
+              ` : '<span style="color: var(--text-muted); font-size: 10px; font-style: italic;">(No pass saved)</span>'}
+            </div>
           ` : `
             <span style="color: var(--text-muted); font-size: 11px; font-style: italic;">
               🔓 Auto-locks on 1st run
@@ -284,7 +293,7 @@ function renderTable() {
         <td>
           <div class="actions-cell">
             <button class="btn btn-secondary btn-sm" onclick="extendLicense(${c.id})" title="Extend validity by 30 days">+30d</button>
-            <button class="btn btn-secondary btn-sm" onclick="copyClientDetails('${escapeHtml(c.username)}', '${escapeHtml(c.password)}', '${expDate}', '${escapeHtml(c.bound_p2p_account || '')}')" title="Copy WhatsApp template">WhatsApp</button>
+            <button class="btn btn-secondary btn-sm" onclick="copyClientDetails('${escapeHtml(c.username)}', '${escapeHtml(c.password)}', '${expDate}', '${escapeHtml(c.bound_p2p_account || c.p2p_gmail || '')}', '${escapeHtml(c.p2p_password || '')}')" title="Copy WhatsApp template">WhatsApp</button>
             ${c.bound_p2p_account ? `<button class="btn btn-secondary btn-sm" onclick="resetP2p(${c.id})" title="Reset P2P Account Lock">Reset P2P</button>` : ''}
             ${c.bound_device ? `<button class="btn btn-secondary btn-sm" onclick="resetDevice(${c.id})" title="Reset Device Lock">Reset Dev</button>` : ''}
             <button class="btn btn-danger btn-sm" onclick="deleteClient(${c.id})">Del</button>
@@ -372,7 +381,7 @@ This bot license is locked to *1 P2P Account ONLY*. You cannot use it on another
 📲 *How to Run:*
 1. Open Kiwi Browser on Mobile (or Chrome on PC).
 2. Install the Ace Pro Extension.
-3. Login using your Username & Password above.
+3. Login using your Username & Password above, and enter your P2P Gmail & Password.
 4. Keep the P2P portal desk tab open. Toggle Start!`;
 
       shareText.value = shareMsg;
@@ -398,8 +407,14 @@ window.copyText = function(text) {
   navigator.clipboard.writeText(text).then(() => showToast("Copied to clipboard!"));
 };
 
-window.copyClientDetails = function(username, password, expDate, p2pAccount) {
-  const p2pText = p2pAccount ? `\n🔒 P2P Account: ${p2pAccount}` : `\n🔒 P2P Account: Auto-locks on 1st run`;
+window.copyClientDetails = function(username, password, expDate, p2pAccount, p2pPass) {
+  let p2pText = `\n🔒 P2P Account: Auto-locks on 1st run`;
+  if (p2pAccount) {
+    p2pText = `\n📧 P2P Gmail: ${p2pAccount}`;
+    if (p2pPass) {
+      p2pText += `\n🔑 P2P Pass: ${p2pPass}`;
+    }
+  }
   const msg = 
 `🤖 *Ace Pro Bot Access*
 👤 Username: ${username}
